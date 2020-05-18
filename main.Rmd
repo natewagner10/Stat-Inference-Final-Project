@@ -1,0 +1,903 @@
+---
+title: " "
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+#  New College of Florida - Stat Inference II
+
+## 2018 PGA Tour Season Analysis
+
+##### *Amanda Bucklin*
+##### *Nate Wagner*
+
+<br>
+
+### **Summary**
+
+We will analyze different variables associated with money earned, average score, and wins on the PGA Tour during the 2018 season to uncover the relationships, effect sizes, and significance associated between them.
+
+<br>
+
+### **Variable Descriptions**  
+
+* _Player Name_   
+* _Rounds_  
+* _Fairway Percentage_    
+* _Avg Distance_   
+* _Gir_  
+  + The percent of time a player was able to hit the green in regulation (greens hit in regulation/holes played). 
+* _Average Putts_    
+* _Average Scrambling_    
+  + The percent of time a player misses the green in regulation, but still makes par or better.  
+* _Average Score_    
+* _Points_    
+  + The cumulative points for the year that the player has earned in the regular season of the FedExCup points race.   
+* _Wins_    
+* _Top 10_    
+* _Average SG Putts_    
+  + The number of putts a player takes from a specific distance is measured against a statistical baseline to determine the player's strokes gained or lost on a hole.  
+* _Average SG Total_    
+  + The per round average of the number of strokes the player was better or worse than the field average on the same course & event.  
+* _SG:OTT_    
+  +  The per round average of the number of strokes the player was better or worse than the field average on the same course & event minus the Players Strokes Gained putting value.  
+* _SG:APR_    
+  +  The sum of the values for all holes played in a round minus the field average strokes gained/lost for the round is the player's   Strokes gained/lost for that round. The sum of strokes gained for each round are divided by total rounds played. 
+* _SG:ARG_    
+  +  The number of Around the Green strokes a player takes from specific locations and distances are measured against a statistical baseline to determine the player's strokes gained or lost on a hole.  
+
+* _Driving Distance Dummy_    
+  + 3 Levels
+      +  Long: 	a drive greater than 302.0 yards
+      +  Average:   a drive 290.0-302
+      +  Short: 	a drive less than 290  
+* _Won That Year Dummy_    
+  +  Dummy variable indicating whether a player won that year  
+      +  1: Player won a PGA Tour event  
+      +  0: Player did not win a PGA Tour event  
+
+
+
+
+<br>
+
+```{r echo=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning=FALSE, message=FALSE)
+```
+
+
+
+```{r echo=FALSE}
+library(tidyverse)
+library(kableExtra)
+```
+
+
+
+```{r include=FALSE}
+golf <- read.csv("pgaTourData.csv")
+golf_df <- golf %>% filter(Year == 2018 & is.na(Rounds) == FALSE)
+
+#head(golf_df)
+```
+
+
+
+
+```{r include=FALSE}
+# create new variables
+golf_df$driving_dist_cat <- cut(golf_df$Avg.Distance,
+                                       c(0, 290, 302, 350),
+                                       labels = c("short", "average", "long"))
+
+#str(golf_df$driving_dist_cat)
+#summary(golf_df$driving_dist_cat)
+
+
+n <- nrow(golf_df)
+won_that_year <- c()
+for (i in 1:n){
+  if (is.na(golf_df$Wins[i]) == FALSE) {
+    won_that_year[i] <- "Yes"
+  } else {
+    won_that_year[i] <- "No"
+  }
+}
+
+golf_df$won_that_year <- as.factor(won_that_year)
+
+#str(golf_df$won_that_year)
+#summary(golf_df$won_that_year)
+
+golf_df$Points <- as.numeric(golf_df$Points)
+golf_df$Money <- gsub("\\$", "", as.character(golf_df$Money))
+golf_df$Money <- gsub("\\,", "", as.character(golf_df$Money))
+golf_df$Money <- as.numeric(golf_df$Money)
+#golf_df$Money
+
+
+#summary(golf_df$Top.10)
+#hist(golf_df$Top.10)
+
+golf_df %>% filter(Top.10 < 1) %>% count()
+golf_df$Top.10[is.na(golf_df$Top.10)] <- 0
+golf_df$skill <- cut(golf_df$Top.10, c(-5, 1, 3, 100),
+                                       labels = c("below", "average", "above"))
+
+golf_df <- golf_df %>% filter(Money > 0)
+
+```
+
+
+
+
+
+### **Exploratory Data Analysis**
+
+<br>
+
+#### Response Variable
+
+```{r, fig.align='center'}
+library(gridExtra)
+p1 <-ggplot(golf_df, aes(Money)) +
+        geom_histogram(fill = "lightblue", color = "black", bins = 20) +
+        scale_y_continuous(expand = c(0,0)) +
+        ggtitle("Money") +
+        theme_classic() +
+        theme(plot.title = element_text(hjust = 0.5))
+
+p2 <- ggplot(golf_df, aes(log(Money))) +
+        geom_histogram(fill = "lightblue", color = "black", bins = 20) +
+        scale_y_continuous(expand = c(0,0)) +
+        ggtitle("Log Money") +
+        theme_classic() +
+        theme(plot.title = element_text(hjust = 0.5))
+
+grid.arrange(p1, p2, ncol = 2)
+```
+
+The distribution of money is skewed to the right. A log transform of that variable is needed here. 
+
+<br>
+<br>
+
+
+
+
+
+```{r, fig.align='center'}
+dta <- data.frame(won = c("Yes", "No"), counts = c(17.6, 82.4))
+ggplot(dta, aes(won, counts, fill = won)) +
+  geom_bar(stat = "identity", show.legend = F) +
+  theme_classic() +
+  labs(x = "Won a Tournament in 2018", y = "Percent %") +
+  scale_y_continuous(expand = c(0,0))
+  
+```
+
+<br>
+<br>
+
+```{r, fig.width=10,fig.height=8}
+library(ggcorrplot)
+reduced_golf <- golf_df %>% select(-Player.Name, -won_that_year, -driving_dist_cat, -Wins, -Year, -skill)
+corr <- round(cor(reduced_golf, use="complete.obs"), 1)
+ggcorrplot(corr,
+           hc.order = F,
+           lab = TRUE,
+           ggtheme = ggplot2::theme_classic,
+           title = "Correlation Matrix")
+```
+
+<br>
+
+
+#### **Explanatory Variables**
+
+<br>
+
+
+##### Do some players make more money than others just because they play more?
+
+<br> 
+ 
+```{r, fig.align='center'}
+p1 <- ggplot(golf_df, aes(Rounds/4, Money, color = won_that_year)) + 
+          geom_point() +
+          labs(x = "Rounds Played", y = "Money") +
+          theme_classic() +
+          guides(fill=guide_legend(title="Won At Least Once"))
+
+p2 <- ggplot(golf_df %>% filter(skill == "below"), aes(Rounds, Money)) + 
+          geom_point() +
+          labs(x = "Rounds Played", y = "Money") +
+          ggtitle("Below Average Players (Less-than 2 Top 10 Finishes)") +
+          stat_smooth(method = "lm", alpha = 0.5) +
+          theme_classic() +
+          theme(plot.title = element_text(hjust = 0.5))
+
+
+
+p1
+```
+
+While as a whole there doesn't seem to be much a relationship between rounds played and money earned, however, if we ignore the players who won at least one tournament and only look at the red points, we do see a positive relationship. 
+
+<br>
+
+
+```{r, fig.align='center'}
+box <- golf_df %>% select(Money, won_that_year) %>% group_by(won_that_year) %>% summarise(mean= mean(Money))
+
+ggplot(golf_df, aes(won_that_year, Money, fill = won_that_year)) +
+  geom_boxplot() +
+  theme_bw() +
+  theme(legend.position = "none") +
+  labs(x = "Won At Least Once")
+```
+
+Players who are winning are simply making more money on average. The mean earnings of PGA Tour players who won at least once is 3,979,965 dollars, and those who didn't win was 1,285,266 dollars. 
+
+<br>
+
+```{r, fig.align='center'}
+ggplot(golf_df, aes(Average.Score, Money)) + 
+  geom_point() +
+  labs(x = "Average Score", y = "Money") +
+  theme_classic()
+```
+
+The relationship between average score and money is clearly non-linear and also negative. Makes perfect sense that the higher your average score, the amount of money made should be lower, due to lower performences in tournaments.
+
+<br>
+
+##### Do players who hit the ball further off the tee have an advantage?
+
+```{r, fig.align='center'}
+ggplot(golf_df, aes(driving_dist_cat, Money, fill = driving_dist_cat)) + 
+  geom_boxplot(show.legend = F) +
+  labs(x = "Average Driving Distance", y = "Money") +
+  theme_classic() 
+```
+
+As driving distance increases, there is in increase in money made. But the question is, are players making more money because they hit the ball further, or because they are shooting lower scores due to the fact they have an advantage off the tee? 
+
+<br>
+
+```{r, fig.align='center'}
+ggplot(golf_df, aes(driving_dist_cat, Average.Score, fill = driving_dist_cat)) + 
+  geom_boxplot(show.legend = F) +
+  labs(x = "Average Driving Distance", y = "Average Score") +
+  theme_classic() 
+```
+
+Here we do see a negative relationship between average driving distance and average score, suggesting there may be an advantage to hitting the ball further on scores. 
+
+<br>
+
+##### How does short game affect money made?
+
+```{r, fig.align='center'}
+ggplot(golf_df %>% filter(Average.Scrambling > 50), aes(Average.Scrambling, Money)) + 
+  geom_point() +
+  labs(x = "Average Scrambling", y = "Money") +
+  theme_classic()
+```
+
+Average Scrambling is the percent of time a player misses the green, but still makes par or better. So essential this variable represents a players short game. Here we see, as average scrambling increases it doesn't really have a big effect on money made.
+
+<br> 
+ 
+```{r, fig.align='center'}
+ggplot(golf_df %>% filter(Average.Scrambling > 50), aes(Average.Scrambling, Average.Score)) + 
+  geom_point() +
+  labs(x = "Average Scrambling", y = "Average Score") +
+  theme_classic()
+```
+
+However, average scrambling does have a big effect on average score, which in turn influences how much money a player makes. So what really is going on here, is that most of the variables have a strong releationship with average score, and thus is influencing how much money a player is making. So we decided to look into the variables that break down a golfer's game, like driving, short game, putting, etc., and to use the player's average score as a response. 
+
+<br>
+
+```{r, fig.align='center'}
+ggplot(golf_df, aes(Average.Score)) +
+        geom_histogram(fill = "lightblue", color = "black", bins = 20) +
+        scale_y_continuous(expand = c(0,0)) +
+        ggtitle("Player's Average Score") +
+        theme_classic() +
+        theme(plot.title = element_text(hjust = 0.5))
+```
+
+The distribution of average score is approximately normal with a mean of 70.9 and standard deviation of 0.77. 
+
+
+<br>
+
+
+
+<br>
+
+```{r, fig.width=10,fig.height=8}
+#Fairway.Percentage, gir, Average Putts, Average.Scrambling, Acg SG Putts, Avg SG OTT sg APR, SG ARG, 
+
+dta <- golf_df %>% select(gir, Average.Putts, Average.Scrambling, Average.SG.Putts, SG.OTT, SG.APR, SG.ARG, Rounds, Money, Average.Score)
+
+pairs(dta)
+```
+
+Here are the remaining variables and their relationship with average scores. 
+
+<br>
+<br>
+
+
+### Relationship Between Categorical Variables
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+library(kableExtra)
+kable(round(prop.table(table(golf_df$driving_dist_cat, golf_df$won_that_year), 1), 2), format = "pandoc", row.names = TRUE)
+```
+
+<br>
+
+**Chi-Squared Test**
+$$
+H_O: \text{Winning at least one tournament is independent of driving distance} \\ vs \\ H_A: \text{Winning at least one tournament depends on driving distance}
+$$
+
+<br>
+
+$$
+\chi^2 = \sum\frac{(\mathrm{observed} - \mathrm{expected})^2}{\mathrm{expected}}
+$$
+
+<br>
+
+$$
+\chi^2 \; | \; H_O \sim \chi^2_{df = 2}
+$$
+
+<br>
+
+$$
+\chi^2 \; = 6.438
+$$
+
+<br>
+
+$$
+\text{Due to the small p value, we reject the null hypothesis and conclude winning at least one tournament depends on driving distance}
+$$
+
+<br>
+
+```{r}
+chisq.test(golf_df$won_that_year, golf_df$driving_dist_cat)
+```
+
+
+<br>
+<br>
+
+### Linear Regression Models
+
+<br> 
+<br> 
+
+**Model With All Variables:**
+
+$$
+\mathrm{Average.Score} = \beta_0 + \beta_1 \mathrm{Rounds_i} + \beta_2 \mathrm{FairwayPerc_i} + \beta_3 \mathrm{GIR_i} + \beta_4 \mathrm{Avg.Putts_i} + \beta_5 \mathrm{Avg.Scrambling_i} + \beta_6 \mathrm{Avg.SG.Putts_i}  \\ + \beta_7 \mathrm{SG.OTT_i} + \beta_8 \mathrm{SG.APR_i} + \beta_9 \mathrm{SG.ARG_i} + \beta_{10} \mathrm{Dist.Avg_i} + \beta_{11} \mathrm{Dist.Long_i} + \beta_{12} \mathrm{Won_i} + e_i \\
+\hspace{1cm}    {e}_i  \sim i.i.d. \hspace{1mm} \mathcal{N}  (0,\,\sigma^{2})\,.
+$$
+
+
+<br> 
+
+**Variance Inflation Factors**
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+library(car)
+golf_df$Wins[is.na(golf_df$Wins)] <- 0
+
+golf_df_slim <- golf_df %>% select(-Money,-Player.Name, -Year, -Wins, -Top.10, -skill, -Avg.Distance, -Points, -Average.SG.Total)
+
+# fit full model
+lm.golfdf <- lm(Average.Score ~ ., golf_df_slim)
+
+# check vif
+vif(lm.golfdf)
+```
+
+Greens in regulation and average putts both show a high variance inflation factor. So after removing gir, the VIF on average putts actual fell below the thereshold of 5. We then performed stepwise backwards selection and we ended up with the following model.
+
+<br> 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+lm.golfdf1 <- lm(Average.Score ~ .-gir, golf_df_slim)
+#vif(lm.golfdf1)
+#summary(lm.golfdf1)
+#lm.golfdf.aic <- step(lm.golfdf1)
+lm.golfdf.aic <- lm(Average.Score ~ Rounds + Average.Scrambling + Average.SG.Putts + 
+    SG.OTT + SG.APR + SG.ARG + won_that_year, golf_df_slim)
+#summary(lm.golfdf.aic)
+```
+
+<br> 
+
+**Model From Backwards Selection Via AIC Criterion:**
+
+$$
+\mathrm{Average.Score} = \beta_0 + \beta_1 \mathrm{Rounds_i} + \beta_5 \mathrm{Avg.Scrambling_i} + \beta_6 \mathrm{Avg.SG.Putts_i}  \\ + \beta_7 \mathrm{SG.OTT_i} + \beta_8 \mathrm{SG.APR_i} + \beta_9 \mathrm{SG.ARG_i} + \beta_{12} \mathrm{Won_i} + e_i \\
+\hspace{1cm}    {e}_i  \sim i.i.d. \hspace{1mm} \mathcal{N}  (0,\,\sigma^{2})\,.
+$$
+
+```{r}
+summary(lm.golfdf.aic)
+```
+
+This model includes a variable that accounts for each part of a golfers game, including driving, approaching, chipping, and putting. While also controlling for factors such as rounds played and whether a player won at least one tournament or not. 
+
+<br> 
+<br> 
+
+
+   
+$$ 
+\textbf{Quality of fit: } \text{Our regression model, including 7 golf characteristics, accounts for 93% of the variability in average scores} \\  
+\text{and the associated residual standard error is 0.208, implying our model misses the true values by 0.208}
+$$
+<br>
+<br>
+
+**Slope Interpretations:**   
+$$
+\textbf{
+Average SG Putts: } \text {Per stroke increase in average strokes gained putting, holding rounds,} \\ \text{average scrambling, strokes gained approaching the green, strokes gained off the tee, and winning at} \\ \text{ least one tournament in 2018 constant, on average we expect a 0.944 decrease in average score.} 
+$$
+
+$$
+\textbf{
+SG OTT: } \text {Per stroke increase in strokes gained off the tee, holding rounds,} \\ \text{average scrambling, strokes gained approaching the green, average strokes gained putting, and winning at } \\ \text{least one tournament in 2018 constant, on average we expect a 0.981 decrease in average score.} 
+$$
+
+$$
+\textbf{
+SG APR: } \text {Per stroke increase in strokes gained approaching the green, } \\ \text{holding rounds, average scrambling, average strokes gained putting, strokes gained off the tee, and winning at} \\ \text{ least one pga tournament in 2018 constant, on everage we expect a 0.987 decrease in average score. } 
+$$
+<br>
+<br>
+
+```{r echo=FALSE}
+#confidence intervals
+#confint(lm.golfdf.aic)
+```
+
+<br>
+<br>
+
+**Testing for Model Significance:**     
+$$ 
+\mathrm{H_O:} \beta_1 = \beta_2 = ... = \beta_7 = 0 \\ vs \\ 
+H_A: \mathrm{at \; least \; \beta_j \neq 0}  \\
+$$
+
+$$
+\mathrm{FS} = \frac{\mathrm{RegSS / p}}{\mathrm{RSS}/(n-(p+1))}  | \: \mathrm{Ho}  \sim F_{p, \; n-(p+1))} \\
+$$
+
+$$
+\mathrm{FS} =  352.2\\
+$$
+
+$$
+\mathrm{p \;value = 2.2e-16} \\
+$$
+
+$$
+\text{Based on the tiny p value, we reject the null hypothesis and conclude} \\
+\text{the model is statistically significant}
+$$
+
+
+
+<br>
+<br>
+
+**Confidence Interval Interpretations:**   
+$$ 
+\textbf{
+Average SG Putting: } \text{We are 95% confident that per stroke increase in average strokes gained putting,} \\ \text{holding rounds,}  \text{ average scrambling, strokes gained approaching the green, strokes gained off the tee, and winning at} \\ \text{ least one tournament in 2018 constant, we expect average score to decrease between 1.059 and 0.83 strokes, on average.} 
+$$
+
+$$
+ \textbf{
+SG OTT: } \text{We are 95% confident that per stroke increase in strokes gained off the tee,} \\ \text{holding rounds,}  \text{ average scrambling, strokes gained approaching the green, average strokes gained putting, and winning at } \\ \text{least one tournament in 2018 constant, we expect the average score to decrease between 1.069 and 0.89 strokes, on average.} 
+$$
+
+$$
+\textbf{
+SG APR: } \text{We are 95 percent confident that per stroke increase in strokes gained approaching the green,} \\ \text{holding rounds, average scrambling, average strokes gained putting, strokes gained off the tee, and winning at} \\ \text{ least one pga tournament in 2018 constant, we expect the average score to decrease between 1.01 and 0.64 strokes, on average.}
+$$
+
+<br>
+<br>
+
+### Model Diagnostics
+
+```{r, fig.align='center'}
+#Residual-fitted plots
+plot(lm.golfdf.aic, which = 1)
+```
+
+
+There doesn't seem to be any discernable patters in the residuals and the constant variance of residuals is satisfied here. 
+
+
+```{r, fig.align='center'}
+#Normal Q-Q PLot
+plot(lm.golfdf.aic, which = 2)
+```
+
+
+Normality of error terms is also satisfied. 
+
+<br>
+
+```{r, fig.align='center'}
+# seems to be an interaction between won and rounds played
+ggplot(golf_df, aes(Rounds, Average.Score, color = won_that_year)) +
+  geom_smooth(method = "lm") +
+  theme_bw() +
+  guides(fill=guide_legend(title="Won At Least Once"))
+```
+
+
+There does seem to be a possible interaction between rounds played and whether a player won at least one tournament that year. It makes sense that for players who are winning tournaments, playing more rounds doesn't seem to have a big effect on average score becuase they are already playing good enough to win. However, players who aren't winning, seem to be playing better the more that they play, suggesting a negative relationship between rounds played and average score. 
+
+<br>
+
+**Full Modeling Equation With Interaction Term:**
+
+ 
+$$
+\mathrm{Average.Score} = \beta_0 + \beta_1 \mathrm{Rounds_i} + \beta_5 \mathrm{Avg.Scrambling_i} + \beta_6 \mathrm{Avg.SG.Putts_i}  \\ + \beta_7 \mathrm{SG.OTT_i} + \beta_8 \mathrm{SG.APR_i} + \beta_9 \mathrm{SG.ARG_i} + \beta_{12} \mathrm{Won_i} + \beta_{13} (\mathrm{Rounds \times Won}) + e_i \\
+\hspace{1cm}    {e}_i  \sim i.i.d. \hspace{1mm} \mathcal{N}  (0,\,\sigma^{2})\,.
+$$
+
+
+**Incremental F-Test to test significance of interaction:**
+
+$$ 
+\mathrm{H_O:} \; \beta_{13} = 0 \\ vs \\ 
+\mathrm{H_A:} \beta_{13} \neq 0  \\
+$$
+
+$$
+\mathrm{FS} = \frac{\mathrm{RegSS_F - RegSS_N / q}}{\mathrm{RSS_F}/(n-(p+1))}  | \: \mathrm{Ho}  \sim F_{q, \; n-(p+1))} \\
+$$
+
+$$
+\mathrm{FS} =  17.715
+$$
+
+$$
+\mathrm{p \;value = 4.017e-05} \\
+$$
+
+$$
+\text{Based on the tiny p value, we reject the null hypothesis and conclude} \\
+\text{the interaction term is statistically significant}
+$$
+
+
+
+
+```{r}
+# model with interaction of Rounds*won_that_year
+lm.golfdf.aic.inter <- lm(Average.Score ~ Rounds + Average.Scrambling + Average.SG.Putts + 
+    SG.OTT + SG.APR + SG.ARG + won_that_year + Rounds*won_that_year, golf_df_slim)
+
+# check sig of interaction
+#anova: there is a statistical difference between these two groups
+anova(lm.golfdf.aic, lm.golfdf.aic.inter)
+#anova(lm.golfdf.aic.inter)
+#summary(lm.golfdf.aic.inter)
+```
+
+<br>
+<br>
+
+
+
+### Detection of Influential Outliers
+
+<br>
+
+**Regression Outliers**
+
+```{r, fig.align='center'}
+## Including outliers with new AIC model
+#plot(lm.golfdf.aic.inter, which = 1)
+#plot(lm.golfdf.aic.inter, which = 2)
+
+plot(rstandard(lm.golfdf.aic.inter))
+text(x=1:nrow(golf_df_slim),
+     y=rstandard(lm.golfdf.aic.inter),
+     rownames(golf_df_slim),
+     cex=0.6, pos=4, col="red")
+```
+
+
+**Leverage of Outliers**
+
+```{r, fig.align='center'}
+plot(hatvalues(lm.golfdf.aic.inter))
+text(x=1:nrow(golf_df_slim),
+     y=hatvalues(lm.golfdf.aic.inter),
+     rownames(golf_df_slim),
+     cex=0.6, pos=4, col="red")
+```
+
+
+```{r, fig.align='center'}
+plot(lm.golfdf.aic.inter, which = 4)
+#Outliers
+#Check low-leverage & high-leverage outliers <- 105 & 161
+```
+
+<br>
+
+We went ahead and removed points 28, 39 and 183 and fit the model again. 
+
+R-Squared with outliers:  
+  - 0.9367  
+R-Squared without outliers:  
+  - 0.936  
+RSE with outliers:  
+  - 0.1987  
+RSE without outliers:  
+* 0.193  
+
+Due to the very small differences in the model, we decided not to remove the outliers. 
+
+```{r}
+golf_df1 <- golf_df_slim[-c(28, 39, 183), ]
+## Excluding the outliers
+lm.golfdf1.remove.outlier <- lm( Average.Score ~ Rounds + Average.Scrambling + Average.SG.Putts + 
+    SG.OTT + SG.APR + SG.ARG + won_that_year + Rounds*won_that_year, data= golf_df1)
+
+# Slope barely changed:
+#lm.golfdf.aic.inter
+#lm.golfdf1.remove.outlier
+#Check if R^2 and RSE change considerably
+#summary(lm.golfdf.aic.inter)
+#summary(lm.golfdf1.remove.outlier)
+```
+
+
+```{r eval=FALSE, include=FALSE}
+#Cooks Distance on "removed outlier" equation
+plot(lm.golfdf1.remove.outlier, which = 4)
+#hatvalues on "removed outlier" equation     
+hatvalues(lm.golfdf1.remove.outlier)
+plot(hatvalues(lm.golfdf1.remove.outlier))
+text(x=1:nrow(golf_df1),
+     y=hatvalues(lm.golfdf1.remove.outlier),
+     rownames(golf_df1),
+     cex=0.6, pos=4, col="red")
+plot(lm.golfdf1.remove.outlier, which=3)
+#rstandard on "removed outlier" equation
+plot(rstandard(lm.golfdf1.remove.outlier))
+text(x=1:nrow(golf_df1),
+     y=rstandard(lm.golfdf1.remove.outlier),
+     rownames(golf_df1),
+     cex=0.6, pos=4, col="red")
+```
+
+<br>
+<br>
+
+
+### Logistic Regression Models
+
+<br>
+
+After checking for collinearity and then performing variable selection via backwards AIC, we obtained the following model:
+
+<br>
+
+**Full Modeling Equation**
+
+
+$$
+p_i = P(\mathrm{Won} = 1 \; | \; \mathrm{Average.SG.Putts_i}, \;  \mathrm{SG.OTT_i}, \; \mathrm{SG.APR_i}) \\
+$$
+
+$$
+Y_i \sim \mathrm{ind} \; Bin(1, p_i)
+$$
+
+$$
+\mathrm{log(\frac{p_i}{1-p_i})} = \beta_0 + \beta_1 \; \mathrm{Average.SG.Putts_i} + \beta_2 \; \mathrm{SG.OTT_i} + \beta_3 \; \mathrm{SG.APR_i}
+$$        
+
+
+
+```{r}
+log_regres_golf_df <- golf_df %>% select(-Player.Name, -Year, -Average.SG.Total, -Average.Score, -Top.10, -Avg.Distance, -Average.Putts, -Money, -Wins, -skill, -Points )
+# fit full logistic model
+glm.log.golf <- glm(won_that_year ~ ., log_regres_golf_df, family="binomial")
+# check vif first
+#vif(glm.log.golf)
+#step function - left with "Average.SG.Putts, SG.OTT, SG.APR"
+#glm.log.golfdf.aic <- step(glm.log.golf)
+glm.log.golfdf.aic <- glm(won_that_year ~ Average.SG.Putts + SG.OTT + SG.APR, family = "binomial", data = log_regres_golf_df)
+summary(glm.log.golfdf.aic)
+```
+
+<br>
+
+### In Sample Prediction Accuracy and Confusion Matrix
+
+<br>
+
+```{r}
+##Model Accuracy
+#Performance metrics
+glm.pred <- predict(glm.log.golfdf.aic, type='response')
+def.pred <- ifelse(glm.pred > 0.50, "Yes","No")
+# Overall Accuracy
+#mean(def.pred == log_regres_golf_df$won_that_year)
+#mean("No" == log_regres_golf_df$won_that_year) 
+```    
+
+```{r, fig.align='center'}
+confusion_matrix <- as.data.frame(table(def.pred, log_regres_golf_df$won_that_year))
+#levels(confusion_matrix$def.pred)
+confusion_matrix$def.pred <- fct_relevel(confusion_matrix$def.pred, c("Yes", "No"))
+#confusion_matrix$Var2 <- fct_relevel(confusion_matrix$Var2, c("Yes", "No"))
+
+ggplot(confusion_matrix, aes(x = def.pred, y = Var2)) +
+  geom_tile(aes(fill = Freq)) +
+  geom_text(aes(label = sprintf("%1.0f", Freq)), vjust = 1) +
+  scale_fill_gradient(low = "lightblue", high = "red", trans = "log") +
+  theme_bw() + 
+  theme(legend.position="none") + 
+  labs(title = "Confusion Matrix:  Accuracy: 84.9%", x = "Predicted", y = "Actual")
+```
+
+
+Due to the data being heaviliy skewed and there being a lot more players who didn't win at least one tournament, the predictions are also skewed. 
+
+<br>
+    
+                
+                
+<br>                
+
+```{r}
+#summary(glm.log.golfdf.aic)
+
+#exp(1.596)
+#exp(1.850)
+#exp(1.463)
+```
+ 
+        
+### Checking for Model Significance
+
+```{r}
+# Analysis of Deviance / Likelihood-Ratio Test
+# (for significance of full model/subset of predictors)
+glm.null <- glm(won_that_year ~ 1,
+                data=log_regres_golf_df,
+                family="binomial")
+```
+
+$$ 
+H_O: \beta_1 = \beta_2 = \beta_3 = 0 \\ vs \\ 
+H_A: \mathrm{at \; least \; \beta_j \neq 0}   \\
+$$
+
+
+
+
+$$
+\mathrm{p \; value: 4.89e-05} \\
+$$
+
+$$
+\text{Based on the tiny p value when comparing the full model to the null model, we can reject } \\ \text{the null hypothesis and claim the model is statistically significant}
+$$
+
+
+```{r}
+# Test for significance of the full model:
+anova(glm.null, glm.log.golfdf.aic, test = "LRT")
+```
+
+<br>
+<br>
+
+**Slope Interpretations:**                  
+$$ 
+\textbf{Probability: } \text{As average strokes gained putting increase, holding strokes gained off the tee} \\ \text{and strokes gained approaching the green constant, the probability of winning also increases.}
+$$
+
+ 
+$$
+\textbf{Log-odds: }\text{Per stroke increase in average strokes gained putting, holding strokes gained off the tee } \\ \text{and strokes gained approaching the green constant, the log-odds of winning increase by 1.596}
+$$
+
+   
+$$
+\textbf{Odds: } \text{Per stroke increase in average strokes gained putting, holding strokes gained off the tee} \\ \text{and strokes gained approaching the green constant, the odds of winning multiply by 4.93}
+$$
+
+$$
+\textbf{Odds: } \text{Per stroke increase in strokes gained off the tee, holding average strokes gained putting } \\ \text{and strokes gained approaching constant, the odds of winning multiply by 6.35.}
+$$  
+
+
+$$
+\textbf{Odds: } \text{Per stroke increase in strokes gained approaching, holding average strokes gained putting } \\ \text{and strokes gained off the tee constant, the odds of winning multiply by 4.31.}
+$$  
+
+```{r}
+#confint.default(glm.log.golfdf.aic)
+#exp(confint(glm.log.golfdf.aic))
+```
+
+<br>
+<br>
+
+**Confidence Interval Interpretations**
+$$ 
+\textbf{
+Average SG Putting: } \text {With 95% confidence, we expect that a one stroke increase in average strokes gained putting, holding strokes gained}\\ \text{off the tee and strokes gained approaching the green constant, the odds of winning at least one pga tournament multiply between 1.28 and 20.5762. }
+$$
+<br>
+<br>
+<br>
+<br>
+<br>
+
+
+
+
+
+
+
+
+
+```{r eval=FALSE, message=FALSE, warning=FALSE, include=FALSE, results='asis'}
+
+############################ Ignore ################################################
+library(stargazer)
+stargazer::stargazer(lm.golfdf, lm.golfdf1, type = "html", align = TRUE, font.size = "small", digits = 2, column.labels = c("-    Model 1    ", "-   Model 2    "), title = "Regression Results", dep.var.labels=c("Average Score", "Average Score")) #covariate.labels=c("Uber", "Distance", "Lux", "Lux XL", "Shared", "XL"),  
+                     #omit.stat=c("LL","ser","f"),report = "vcp*", column.sep.width = "40")
+####################################################################################
+```
+
+```{r eval=FALSE, include=FALSE}
+############################ Ignore ################################################
+library(car)
+
+golf_df_slim <- golf_df %>% select(-Player.Name, -Year, -Wins, -Top.10, -skill, -Avg.Distance, -Points, -Average.SG.Total)
+
+lm.golfdf <- lm(log(Money) ~ ., golf_df_slim)
+
+#check for model significance
+summary(lm.golfdf)
+vif(lm.golfdf)
+lm.golfdf1 <- lm(log(Money) ~ .-Average.Score-gir, golf_df_slim)
+vif(lm.golfdf1)
+summary(lm.golfdf1)
+#Variable selection using AIC
+step(lm.golfdf1)
+lm.golfdf.aic <- step(lm.golfdf1)
+summary(lm.golfdf.aic)
+####################################################################################
+```
